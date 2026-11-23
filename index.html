@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Projectile Motion Lab</title>
+<style>
+:root{font-family:Segoe UI,Arial,sans-serif;color:#172033;background:#f2f5f9}*{box-sizing:border-box}body{margin:0;padding:24px}.wrap{max-width:1180px;margin:auto}h1{margin:0 0 6px}.sub{color:#58677d;margin:0 0 20px}.card{background:white;border:1px solid #dce3ec;border-radius:12px;padding:18px;box-shadow:0 3px 12px #1720330c}.inputs{display:flex;flex-wrap:wrap;gap:14px;align-items:end}.field{display:grid;gap:6px}.field label{font-size:13px;color:#58677d}.field input{width:150px;padding:10px;border:1px solid #cbd5e1;border-radius:7px;font-size:16px}button{border:0;border-radius:7px;background:#1769aa;color:white;padding:11px 18px;font-size:15px;cursor:pointer}button.secondary{background:#64748b}button:disabled{opacity:.45;cursor:default}.error{color:#b42318;min-height:22px;margin-top:10px}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:16px 0}.metric{background:#f7f9fc;border:1px solid #e2e8f0;border-radius:9px;padding:12px}.metric span{display:block;color:#58677d;font-size:13px}.metric strong{display:block;font-size:20px;margin-top:5px}.layout{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(320px,1fr);gap:16px}.plothead{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.plothead h2,.tablecard h2{font-size:18px;margin:0}#status{color:#58677d;font-size:13px}svg{width:100%;height:auto;display:block;background:#fbfdff;border:1px solid #e5eaf1;border-radius:8px}.controls{display:flex;gap:8px;margin-top:10px}.tablewrap{overflow:auto;max-height:470px;margin-top:12px}table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;font-size:13px}th,td{text-align:right;padding:7px 8px;border-bottom:1px solid #e6ebf1;white-space:nowrap}th{position:sticky;top:0;background:#f4f7fb;color:#46546a}th:first-child,td:first-child{text-align:left}.note{color:#64748b;font-size:12px;margin:10px 0 0}@media(max-width:850px){body{padding:14px}.layout{grid-template-columns:1fr}.summary{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body><main class="wrap">
+<h1>Projectile Motion Lab</h1><p class="sub">Enter the launch values to generate the trajectory, animation, and time-step table.</p>
+<section class="card">
+<div class="inputs">
+<div class="field"><label for="speed">Initial speed (m/s)</label><input id="speed" type="number" min="0" step="any" value="25"></div>
+<div class="field"><label for="angle">Launch angle (degrees)</label><input id="angle" type="number" min="0.01" max="89.99" step="any" value="45"></div>
+<div class="field"><label for="wind">Horizontal wind (m/s)</label><input id="wind" type="number" step="any" value="0"></div>
+<div class="field"><label for="dt">Table time step (s)</label><input id="dt" type="number" min="0.001" step="any" value="0.1"></div>
+<button id="simulate">Simulate</button>
+</div><div id="error" class="error"></div>
+<div class="summary">
+<div class="metric"><span>Flight time</span><strong id="flight">—</strong></div><div class="metric"><span>Maximum height</span><strong id="height">—</strong></div><div class="metric"><span>Horizontal range</span><strong id="range">—</strong></div><div class="metric"><span>Horizontal velocity</span><strong id="vx">—</strong></div>
+</div>
+</section>
+<div class="layout" style="margin-top:16px">
+<section class="card"><div class="plothead"><h2>Trajectory animation</h2><span id="status">Ready</span></div>
+<svg id="plot" viewBox="0 0 800 470" role="img" aria-label="Animated projectile trajectory"></svg>
+<div class="controls"><button id="play">Play</button><button id="reset" class="secondary">Reset</button></div><p class="note">Wind adds a constant horizontal velocity, matching the supplied C++ equations. Gravity is 9.81 m/s².</p>
+</section>
+<section class="card tablecard"><h2>Motion table</h2><div class="tablewrap"><table><thead><tr><th>t (s)</th><th>x (m)</th><th>y (m)</th><th>Vx (m/s)</th><th>Vy (m/s)</th></tr></thead><tbody id="rows"></tbody></table></div><p class="note" id="tableNote">Run a simulation to fill the table.</p></section>
+</div></main>
+<script>
+const G=9.81, $=id=>document.getElementById(id);let model=null,raf=null,startedAt=0,pausedAt=0,isPlaying=false;
+function fmt(n){return Number(n).toFixed(2)}
+function simulate(){
+  $('error').textContent='';
+  const speed=Number($('speed').value),deg=Number($('angle').value),wind=Number($('wind').value),dt=Number($('dt').value);
+  if(!Number.isFinite(speed)||speed<0||!Number.isFinite(deg)||!Number.isFinite(wind)||!Number.isFinite(dt)||dt<=0){$('error').textContent='Enter valid numbers; speed must be 0 or greater and the time step must be positive.';return}
+  if(speed>0&&(deg<=0||deg>=90)){$('error').textContent='For a positive launch speed, angle must be greater than 0 and less than 90 degrees.';return}
+  const a=deg*Math.PI/180,vx=speed===0?wind:speed*Math.cos(a)+wind,vy=speed===0?0:speed*Math.sin(a);
+  const T=speed===0?5:2*vy/G,H=vy*vy/(2*G),R=vx*T;
+  model={vx,vy,T,H,R,zero:speed===0};
+  $('flight').textContent=fmt(T)+' s';$('height').textContent=fmt(H)+' m';$('range').textContent=fmt(R)+' m';$('vx').textContent=fmt(vx)+' m/s';
+  buildTable(dt);drawPlot();resetAnimation();$('status').textContent=speed===0?'Horizontal motion (5 s view)':'Ready to animate';
+}
+function buildTable(dt){
+ const {vx,vy,T}=model;const n=Math.ceil(T/dt);const stride=Math.max(1,Math.ceil(n/1500));let times=[];
+ for(let i=0;i<=n;i+=stride)times.push(Math.min(i*dt,T));
+ if(times[times.length-1]!==T)times.push(T);
+ $('rows').innerHTML=times.map(t=>{const y=Math.max(0,vy*t-.5*G*t*t),curVy=vy-G*t;return `<tr><td>${fmt(t)}</td><td>${fmt(vx*t)}</td><td>${fmt(y)}</td><td>${fmt(vx)}</td><td>${fmt(curVy)}</td></tr>`}).join('');
+ $('tableNote').textContent=`${times.length} rows shown. The final row is the exact landing time${stride>1?'; rows are thinned to keep the table responsive':''}.`;
+}
+function drawPlot(){
+ const {vx,vy,T,H,R}=model,W=800,ht=470,p={l:72,r:24,t:28,b:58};
+ const x0=Math.min(0,R),x1=Math.max(0,R),xpad=Math.max(1,(x1-x0)*.08),ymax=Math.max(1,H*1.2);
+ const xmin=x0-xpad,xmax=x1+xpad,plotW=W-p.l-p.r,plotH=ht-p.t-p.b;
+ const X=x=>p.l+(x-xmin)/(xmax-xmin)*plotW,Y=y=>p.t+plotH-y/ymax*plotH;
+ let s=[];
+ for(let i=0;i<=4;i++){const y=ymax*i/4,py=Y(y);s.push(`<line x1="${p.l}" y1="${py}" x2="${W-p.r}" y2="${py}" stroke="#e1e7ef"/><text x="${p.l-10}" y="${py+4}" text-anchor="end" font-size="12" fill="#526078">${fmt(y)}</text>`)}
+ for(let i=0;i<=4;i++){const x=xmin+(xmax-xmin)*i/4,px=X(x);s.push(`<line x1="${px}" y1="${p.t}" x2="${px}" y2="${ht-p.b}" stroke="#eef1f5"/><text x="${px}" y="${ht-p.b+22}" text-anchor="middle" font-size="12" fill="#526078">${fmt(x)}</text>`)}
+ let path='';for(let i=0;i<=180;i++){const t=T*i/180,x=vx*t,y=Math.max(0,vy*t-.5*G*t*t);path+=(i?' L':'M')+X(x)+' '+Y(y)}
+ s.push(`<line x1="${p.l}" y1="${ht-p.b}" x2="${W-p.r}" y2="${ht-p.b}" stroke="#344054" stroke-width="2"/><line x1="${p.l}" y1="${p.t}" x2="${p.l}" y2="${ht-p.b}" stroke="#344054" stroke-width="2"/>`);
+ s.push(`<path d="${path}" fill="none" stroke="#2878c8" stroke-width="3" stroke-dasharray="8 5"/><circle cx="${X(R)}" cy="${Y(0)}" r="5" fill="#64748b"/>`);
+ s.push(`<circle id="ball" cx="${X(0)}" cy="${Y(0)}" r="9" fill="#d33b4a" stroke="white" stroke-width="2"/><text id="live" x="${p.l+12}" y="${p.t+18}" font-size="13" fill="#344054"></text>`);
+ s.push(`<text x="${p.l+plotW/2}" y="${ht-10}" text-anchor="middle" font-size="13" fill="#344054">Horizontal distance x (m)</text><text transform="translate(18 ${p.t+plotH/2}) rotate(-90)" text-anchor="middle" font-size="13" fill="#344054">Height y (m)</text>`);
+ if(H>0)s.push(`<circle cx="${X(R/2)}" cy="${Y(H)}" r="5" fill="#f59e0b"/><text x="${X(R/2)+9}" y="${Y(H)-8}" font-size="12" fill="#975a00">Peak ${fmt(H)} m</text>`);
+ $('plot').innerHTML=s.join('');model.scale={X,Y};
+}
+function frame(now){if(!isPlaying||!model)return;const elapsed=(now-startedAt)/1000,T=model.T,t=Math.min(T,elapsed% (T+0.8));const x=model.vx*t,y=Math.max(0,model.vy*t-.5*G*t*t);const ball=$('ball');ball.setAttribute('cx',model.scale.X(x));ball.setAttribute('cy',model.scale.Y(y));$('live').textContent=`t ${fmt(t)} s   x ${fmt(x)} m   y ${fmt(y)} m   Vy ${fmt(model.vy-G*t)} m/s`;if(elapsed>=T){isPlaying=false;$('play').textContent='Play';$('status').textContent='Landed';return}raf=requestAnimationFrame(frame)}
+function resetAnimation(){if(raf)cancelAnimationFrame(raf);isPlaying=false;pausedAt=0;$('play').textContent='Play';$('status').textContent='Ready';if(model){$('ball').setAttribute('cx',model.scale.X(0));$('ball').setAttribute('cy',model.scale.Y(0));$('live').textContent=`t 0.00 s   x 0.00 m   y 0.00 m   Vy ${fmt(model.vy)} m/s`}}
+$('simulate').addEventListener('click',simulate);
+$('play').addEventListener('click',()=>{if(!model)return;if(isPlaying){isPlaying=false;pausedAt=performance.now();$('play').textContent='Play';$('status').textContent='Paused';if(raf)cancelAnimationFrame(raf)}else{if(pausedAt){startedAt+=performance.now()-pausedAt;pausedAt=0}else startedAt=performance.now();isPlaying=true;$('play').textContent='Pause';$('status').textContent='In flight';raf=requestAnimationFrame(frame)}});
+$('reset').addEventListener('click',resetAnimation);simulate();
+</script></body></html>
